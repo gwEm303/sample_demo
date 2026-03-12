@@ -19,7 +19,7 @@ top:        lea     state(pc),a2                ; load the start address of the 
 
             ; open all files
             lea     sampleInfo(pc),a3
-            moveq.w #NUMSAMPLES-1,d1
+            moveq.w #NUMSAMPLES-1,d3
 .fopenLoop  move.w  #0,-(sp)                    ; read only access
             move.l  a3,-(sp)                    ; assume samFileName if first item
             move.w  #$3d,-(sp)                  ; GEMDOS fopen()
@@ -28,7 +28,7 @@ top:        lea     state(pc),a2                ; load the start address of the 
             move.w  d0,samFileHan(a3)           ; we assume this completed without error
             bmi.s   error                       ; if some kind of error exit
             lea     samInfoLen(a3),a3           ; point to next sample
-            dbra    d1,.fopenLoop
+            dbra    d3,.fopenLoop
 
             ; load and unpack first sample so we can get going
             lea     buf2Samples(pc),a1          ; a1 points to buffer 2 sample list
@@ -99,8 +99,8 @@ top:        lea     state(pc),a2                ; load the start address of the 
             ; a4   = unpacked buffer position
             ; a5   = unpacked buffer end
             bsr     loadSample
-            cmpi.w  #NUMSAMPLES-1,sampleNum(a1)
-            beq     .loadedAll
+            cmpi.w  #NUMSAMPLES-1,sampleNum(a1) ; this is an optimisation for this particular tune as according to observation once
+            beq     .loadedAll                  ; all the samples are loaded everything is resident in memory to finish the song
             tst.l   d0
             bge     .noBufSwap
 
@@ -180,13 +180,13 @@ top:        lea     state(pc),a2                ; load the start address of the 
 
             ; close all files
             lea     sampleInfo(pc),a3
-            moveq.w #NUMSAMPLES-1,d1
+            moveq.w #NUMSAMPLES-1,d3
 .fcloseLoop move.w  samFileHan(a3),-(sp)        ;
             move.w  #$3e,-(sp)                  ; GEMDOS fclose()
             trap    #1                          ;
             addq.l  #4,sp                       ; fix stack
             lea     samInfoLen(a3),a3           ; point to next sample
-            dbra    d1,.fcloseLoop
+            dbra    d3,.fcloseLoop
 
             move.l  oldTc(pc),$114.w            ; restore timer C
             bra     tosDeinit
@@ -262,14 +262,23 @@ loadSample: movem.l d1-d4/a0-a6,-(sp)
             lea     newlineStr(pc),a0       ;
             bsr     cconws                  ;
 
+;            move.w  #0,-(sp)                ; this is required if we reload the same sample multiple times
+;            move.w  samFileHan(a3),-(sp)    ;
+;            move.l  #0,-(sp)                ; 0 bytes (return to the beginning of the file)
+;            move.w  #$42,-(sp)              ; GEMDOS fseek()
+;            trap    #1                      ;
+;            lea     10(sp),sp               ; fix stack
+;            tst.l   d0                      ; error?
+;            bne     error                   ;
+
             pea     packedBuf(pc)           ;
-            move.l	d3,-(sp)                ;
-            move.w	samFileHan(a3),-(sp)    ;
-            move.w	#$3f,-(sp)              ; GEMDOS fread()
-            trap	#1                      ;
+            move.l  d3,-(sp)                ;
+            move.w  samFileHan(a3),-(sp)    ;
+            move.w  #$3f,-(sp)              ; GEMDOS fread()
+            trap    #1                      ;
             lea     12(sp),sp               ; fix stack
-            tst.l   d0                      ; error?
-            bmi     error                   ;
+            cmp.l   d0,d3                   ; error?
+            bne     error                   ;
 
             move.l  a4,samAddr(a3)          ; store sample address, we do this before the depack, as depacking runs faster than playback
             move.w  d7,samBuffer(a3)        ; store sample buffer

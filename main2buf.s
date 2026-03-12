@@ -17,6 +17,19 @@ top:        lea     state(pc),a2                ; load the start address of the 
 
             bsr     adpcmInitTables             ; initialise Kalms ADPCM
 
+            ; open all files
+            lea     sampleInfo(pc),a3
+            moveq.w #NUMSAMPLES-1,d3
+.fopenLoop  move.w  #0,-(sp)                    ; read only access
+            move.l  a3,-(sp)                    ; assume samFileName if first item
+            move.w  #$3d,-(sp)                  ; GEMDOS fopen()
+            trap    #1                          ;
+            addq.l  #8,sp                       ; fix stack
+            move.w  d0,samFileHan(a3)           ; we assume this completed without error
+            bmi.s   error                       ; if some kind of error exit
+            lea     samInfoLen(a3),a3           ; point to next sample
+            dbra    d3,.fopenLoop
+
             ; load and unpack first sample so we can get going
             lea     sequence(pc),a1             ; a1 points to song sequence
             move.w  sampleNum(a1),d0            ; d0 holds the first sample number
@@ -36,7 +49,7 @@ top:        lea     state(pc),a2                ; load the start address of the 
 
             ; install interrupt
             lea     stealingStr(pc),a0
-            bsr.s   cconws
+            bsr     cconws
             lea     oldTc(pc),a0                ; store old timer C vector
             move.l  $114.w,(a0)                 ;
             lea     timerC(pc),a0               ; steal timer C
@@ -101,7 +114,7 @@ top:        lea     state(pc),a2                ; load the start address of the 
             bsr     cconws
             move.l  (sp)+,a0
 
-.wait0:     bsr.s   checkExit                   ; leave early if we have a key press
+.wait0:     bsr     checkExit                   ; leave early if we have a key press
             tst.l   d0                          ;
             bne.s   .deinit                     ;
             cmp.l   seqAddr(a2),d3
@@ -111,7 +124,7 @@ top:        lea     state(pc),a2                ; load the start address of the 
             move.l  a1,(a3)
 
             moveq.w #0,d7
-            bsr.s   clearBuf
+            bsr     clearBuf
             lea     packedBuf(pc),a4            ;
             add.l   #unpackBuf0-packedBuf,a4    ; a4 points to position in unpack buffer
             lea     packedBuf(pc),a5            ;
@@ -136,6 +149,17 @@ top:        lea     state(pc),a2                ; load the start address of the 
             ; deinitialisation
 .deinit:    lea     exitingStr(pc),a0
             bsr     cconws
+
+            ; close all files
+            lea     sampleInfo(pc),a3
+            moveq.w #NUMSAMPLES-1,d3
+.fcloseLoop move.w  samFileHan(a3),-(sp)        ;
+            move.w  #$3e,-(sp)                  ; GEMDOS fclose()
+            trap    #1                          ;
+            addq.l  #4,sp                       ; fix stack
+            lea     samInfoLen(a3),a3           ; point to next sample
+            dbra    d3,.fcloseLoop
+
             move.l  oldTc(pc),$114.w            ; restore timer C
             bra     tosDeinit
 
@@ -201,42 +225,38 @@ loadSample: movem.l d1-d4/a0-a6,-(sp)
             bsr     cconws                  ;
             lea     intoBufferStr(pc),a0    ;
             bsr     cconws                  ;
+
             move.w  d7,d0                   ;
             add.w   #'0',d0                 ;
             bsr     cconout                 ;
             lea     newlineStr(pc),a0       ;
             bsr     cconws                  ;
 
-            move.w  #0,-(sp)                ; read only access
-            move.l  a3,-(sp)                ;
-            move.w  #$3d,-(sp)              ; GEMDOS fopen()
+            move.w  #0,-(sp)                ; this is required if we reload the same sample multiple times
+            move.w  samFileHan(a3),-(sp)    ;
+            move.l  #0,-(sp)                ; 0 bytes (return to the beginning of the file)
+            move.w	#$42,-(sp)              ; GEMDOS fseek()
             trap    #1                      ;
-            addq.l  #8,sp                   ; fix stack
-            lea     fileHandle(pc),a1       ;
-            move.w  d0,(a1)                 ;
-            bmi     error                   ; if some kind of error exit
+            lea     10(sp),sp               ; fix stack
+            tst.l   d0                      ; error?
+            bne     error                   ;
 
             pea     packedBuf(pc)           ;
-            move.l	d3,-(sp)                ;
-            move.w	fileHandle(pc),-(sp)    ;
-            move.w	#$3f,-(sp)              ; GEMDOS fread()
-            trap	#1                      ;
-            lea     12(sp),sp               ; fix stack
-            tst.l   d0                      ; error?
-            bmi     error                   ;
-
-            move.w  fileHandle(pc),-(sp)    ;
-            move.w  #$3e,-(sp)              ; GEMDOS fclose()
+            move.l  d3,-(sp)                ;
+            move.w  samFileHan(a3),-(sp)    ;
+            move.w  #$3f,-(sp)              ; GEMDOS fread()
             trap    #1                      ;
-            addq.l  #4,sp                   ; fix stack
+            lea     12(sp),sp               ; fix stack
+            cmp.l   d0,d3                   ; error?
+            bne     error                   ;
+
+            move.l  a4,samAddr(a3)          ; store sample address, we do this before the depack, as depacking runs faster than playback
+            move.w  d7,samBuffer(a3)        ; store sample buffer
 
             lea     packedBuf(pc),a0        ; packed buffer
             move.l  a4,a1                   ; unpacked buffer
             move.l  d4,d0                   ;
             bsr     adpcmDecoder            ;
-
-            move.l  a4,samAddr(a3)          ; store sample address
-            move.w  d7,samBuffer(a3)        ; store sample buffer
 
 .end        movem.l (sp)+,d1-d4/a0-a6
             rts
