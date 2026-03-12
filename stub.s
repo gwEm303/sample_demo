@@ -4,7 +4,6 @@
 ; 2026
 ; Gareth Morris / gwEm
 ;
-; stub.s
 
         OUTPUT  .PRG
         comment HEAD=%111       ; bit0=ttram(mem) bit1=ttram(prg) bit2=fastload

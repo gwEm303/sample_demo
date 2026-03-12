@@ -1,3 +1,10 @@
+;
+; Daft Punk Sample Demo
+;
+; 2026
+; Gareth Morris / gwEm
+;
+
 ;................................................................
             RSRESET
 ticks:      rs.w    1
